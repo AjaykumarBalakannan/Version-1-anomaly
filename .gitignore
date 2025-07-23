@@ -1,8 +1,8 @@
 # # Ignore Python cache
 **__pycache__**
 
-# !output/.gitkeep
-# output
+!output/.gitkeep
+output/*
 
 !logs/.gitkeep
 logs/*
