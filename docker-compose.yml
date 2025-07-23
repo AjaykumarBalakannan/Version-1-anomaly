@@ -1,0 +1,50 @@
+services:
+  anomaly-detection:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: anomaly-detection
+    depends_on:
+      - anomaly-detection-mongodb
+    environment:
+      - MONGO_URI=mongodb://anomaly-detection-mongodb:27017
+      - APP_DB=anomaly_db
+      # ---------------- US Model ----------------
+      - US_COLLECTION=us_job_history
+      - US_INPUT_PARQUET=input-files/linkedin_jan_2025.parquet
+      - US_MAPPING_XLSX=data/Full_zipcodeFix.xlsx
+      - US_ZIPCODE_XLSX=data/Canaria_Zipcodes.xlsx
+      - US_OUTPUT_CSV=output/anomalies_US.csv
+      - US_BATCH_SIZE=50000
+      # --------------- State Model --------------
+      - STATE_COLLECTION=state_job_history
+      - STATE_INPUT_PARQUET=input-files/linkedin_jan_2025.parquet
+      - STATE_MAPPING_XLSX=data/Full_zipcodeFix.xlsx
+      - STATE_ZIPCODE_XLSX=data/Canaria_Zipcodes.xlsx
+      - STATE_OUTPUT_CSV=output/anomalies_state.csv
+      - STATE_BATCH_SIZE=50000
+      # --------------- SOC Model ----------------
+      - SOC_COLLECTION=soc_job_history
+      - SOC_INPUT_PARQUET=input-files/linkedin_jan_2025.parquet
+      - SOC_OUTPUT_CSV=output/anomalies_SOC.csv
+      - SOC_BATCH_SIZE=50000
+      - SOC_MODEL=1
+    volumes:
+      - ./input-files:/app/input-files
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./logs:/app/logs
+    tty: true
+
+  # ---------------- MongoDB Service ----------------
+  anomaly-detection-mongodb:
+    image: mongo:8.0
+    container_name: anomaly-detection-mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+
+volumes:
+  mongodb_data:

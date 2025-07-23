@@ -1,0 +1,13 @@
+# requirements.txt
+
+pandas>=1.5.0
+numpy>=1.22.0
+openpyxl>=3.0.0     # For reading/writing Excel files (.xlsx)
+pyarrow>=8.0.0      # For reading Parquet files with pandas
+fastparquet>=0.8.0  # Optional: alternative Parquet support for pandas
+tqdm>=4.60.0        # For progress bars
+pymongo>=4.0.0      # For MongoDB operations
+psutil>=5.8.0       # For memory monitoring
+
+# Standard library modules like 'logging', 'os', 're' do not need to be listed, will be pre-installed
+

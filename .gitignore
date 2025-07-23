@@ -1,0 +1,35 @@
+# # Ignore Python cache
+# **__pycache__**
+
+# # Ignore all parquet and csv files everywhere
+# *.parquet
+# *.csv
+
+# # Ignore all files in output and logs directories
+# output/*
+# logs/*
+
+# # Keep .gitkeep files to preserve empty dirs
+# !output/.gitkeep
+# !logs/.gitkeep
+
+# # Ignore all files in data except .gitkeep
+# data/*
+# !data/.gitkeep
+
+*.parquet
+*.csv
+*.log
+*.zip
+*.dmg
+*.mov
+*.sh
+*.apk
+*.pkg
+*.xlsx
+*.pdf
+__pycache__/
+output/
+logs/
+data/
+input-files/
