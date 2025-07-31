@@ -1,11 +1,17 @@
-# # Ignore Python cache
-**__pycache__**
+# Ignore Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 
-!output/.gitkeep
-output/*
-
-!logs/.gitkeep
+# Ignore logs but keep .gitkeep
 logs/*
+!logs/.gitkeep
 
-!input-files/.gitkeep
+# Ignore output but keep .gitkeep  
+output/*
+!output/.gitkeep
+
+# Ignore input-files but keep .gitkeep
 input-files/*
+!input-files/.gitkeep
