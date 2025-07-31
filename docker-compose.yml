@@ -8,8 +8,8 @@ services:
       - anomaly-detection-mongodb
     environment:
       - MONGO_URI=mongodb://anomaly-detection-mongodb:27017
-      - APP_DB=anomaly_db
       # ---------------- US Model ----------------
+      - US_APP_DB=us_anomaly_db
       - US_COLLECTION=us_job_history
       - US_INPUT_PARQUET=input-files/linkedin_jan_2025.parquet
       - US_MAPPING_XLSX=data/Full_zipcodeFix.xlsx
@@ -17,6 +17,7 @@ services:
       - US_OUTPUT_CSV=output/anomalies_US.csv
       - US_BATCH_SIZE=50000
       # --------------- State Model --------------
+      - STATE_APP_DB=state_anomaly_db
       - STATE_COLLECTION=state_job_history
       - STATE_INPUT_PARQUET=input-files/linkedin_jan_2025.parquet
       - STATE_MAPPING_XLSX=data/Full_zipcodeFix.xlsx
@@ -24,6 +25,7 @@ services:
       - STATE_OUTPUT_CSV=output/anomalies_state.csv
       - STATE_BATCH_SIZE=50000
       # --------------- SOC Model ----------------
+      - SOC_APP_DB=soc_anomaly_db
       - SOC_COLLECTION=soc_job_history
       - SOC_INPUT_PARQUET=input-files/linkedin_jan_2025.parquet
       - SOC_OUTPUT_CSV=output/anomalies_SOC.csv

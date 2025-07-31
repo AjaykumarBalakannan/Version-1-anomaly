@@ -13,8 +13,10 @@ class Preprocessor:
         if columns is None:
             columns = [
                 'job_key', 'state', 'zipcode', 'correct_date',
-                'first_scrape_timestamp', 'scraped_location', 'src'
+                'first_scrape_timestamp', 'scraped_location', 'src',
+                'nlp_soc_code', 'scrape_method', 'db_insert_timestamp'
             ]
+
         logging.info(f"Loading data from {file_path} ...")
         df = pd.read_parquet(file_path, columns=columns)
         logging.info(f"Loaded {len(df)} rows from {file_path}")
@@ -26,8 +28,10 @@ class Preprocessor:
         if columns is None:
             columns = [
                 'job_key', 'state', 'zipcode', 'correct_date',
-                'first_scrape_timestamp', 'scraped_location', 'src'
+                'first_scrape_timestamp', 'scraped_location', 'src',
+                'nlp_soc_code', 'scrape_method', 'db_insert_timestamp'
             ]
+
         
         logging.info(f"Reading parquet file in batches of {batch_size:,} rows from {file_path}")
         

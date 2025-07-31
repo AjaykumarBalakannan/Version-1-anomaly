@@ -111,11 +111,7 @@ class AnomalyDetector:
 
         # Step 9: Save results
         if csv_path:
-            df_anom_to_save = df_anom.copy()
-            for col in ["low_expected_job_count", "low_expected_job_count_mad"]:
-                if col in df_anom_to_save.columns:
-                    df_anom_to_save[col] = df_anom_to_save[col].clip(lower=0)
-            df_anom_to_save.to_csv(csv_path, index=False)
+            df_anom.to_csv(csv_path, index=False)
             logger.info(f"Anomaly detection results saved to {csv_path}")
 
         return df_anom, pivot, summary
