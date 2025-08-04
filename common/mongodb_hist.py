@@ -111,6 +111,17 @@ class HistoryManager:
                 logger.info(f"Successfully created index: {index_name}")
             else:
                 logger.info(f"Index {index_name} already exists, skipping creation")
+            
+            # Create unique compound index to prevent duplicates
+            unique_index_name = "unique_date_geo_src_idx"
+            unique_index_exists = any(idx.get('name') == unique_index_name for idx in existing_indexes)
+            
+            if not unique_index_exists:
+                logger.info(f"Creating unique compound index: {unique_index_name} on fields: {index_fields}")
+                collection.create_index(index_fields, name=unique_index_name, unique=True)
+                logger.info(f"Successfully created unique index: {unique_index_name}")
+            else:
+                logger.info(f"Unique index {unique_index_name} already exists, skipping creation")
                 
         except Exception as e:
             logger.warning(f"Error creating indexes: {e}")
@@ -120,6 +131,65 @@ class HistoryManager:
     # ============================================================================
     # DATA OPERATIONS - INSERT/UPSERT
     # ============================================================================
+    
+    def check_existing_data(self, date_range=None):
+        """
+        Check for existing data in the collection
+        
+        Args:
+            date_range: Optional tuple of (start_date, end_date) to check specific date range
+            
+        Returns:
+            Dictionary with existing data statistics
+        """
+        logger = logging.getLogger(__name__)
+        
+        if self.collection is None:
+            logger.error("MongoDB collection is not available")
+            return {}
+            
+        try:
+            # Build query filter
+            filter_query = {}
+            if date_range:
+                start_date, end_date = date_range
+                filter_query['date'] = {
+                    '$gte': start_date,
+                    '$lte': end_date
+                }
+            
+            # Get total count
+            total_count = self.collection.count_documents(filter_query)
+            
+            # Get date range if no specific range provided
+            if not date_range:
+                date_stats = self.collection.aggregate([
+                    {'$match': filter_query},
+                    {'$group': {
+                        '_id': None,
+                        'min_date': {'$min': '$date'},
+                        'max_date': {'$max': '$date'},
+                        'unique_dates': {'$addToSet': '$date'}
+                    }}
+                ]).next()
+                
+                date_range = (date_stats['min_date'], date_stats['max_date'])
+                unique_dates = len(date_stats['unique_dates'])
+            else:
+                unique_dates = self.collection.count_documents(filter_query)
+            
+            result = {
+                'total_records': total_count,
+                'date_range': date_range,
+                'unique_dates': unique_dates
+            }
+            
+            logger.info(f"Existing data stats: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error checking existing data: {e}")
+            return {}
     
     def add_daily_counts_batch(self, daily_counts_df: pd.DataFrame):
         """
@@ -178,7 +248,7 @@ class HistoryManager:
             # Create unique _id for each (date, geo_level, src) combination
             unique_id = f"{row[self.group_field]}_{row['src']}_{row['date']}"
             
-            # Create upsert operation to increment job_count
+            # Create upsert operation to replace job_count (not increment)
             operation = UpdateOne(
                 {
                     'date': row['date'],
@@ -186,12 +256,12 @@ class HistoryManager:
                     'src': row['src']
                 },
                 {
-                    '$inc': {'job_count': row['job_count']},
-                    '$setOnInsert': {
+                    '$set': {
                         '_id': unique_id,
                         'date': row['date'],
                         self.group_field: row[self.group_field],
-                        'src': row['src']
+                        'src': row['src'],
+                        'job_count': row['job_count']
                     }
                 },
                 upsert=True
@@ -386,21 +456,46 @@ class HistoryManager:
     
     def clear_old_data(self, days_to_keep=90):
         """
-        Clear old data from MongoDB
+        Clear old data from the collection
         
         Args:
-            days_to_keep: Number of days of data to keep
+            days_to_keep: Number of days of data to keep (default: 90)
         """
         logger = logging.getLogger(__name__)
         
+        if self.collection is None:
+            logger.error("MongoDB collection is not available")
+            return
+            
         try:
+            # Calculate cutoff date
             cutoff_date = pd.Timestamp.now() - pd.Timedelta(days=days_to_keep)
-            result = self.collection.delete_many({
-                'inserted_at': {'$lt': cutoff_date}
-            })
-            logger.info(f"Cleared {result.deleted_count} old records from MongoDB")
+            cutoff_date_str = cutoff_date.strftime('%Y-%m-%d')
+            
+            # Delete old records
+            result = self.collection.delete_many({'date': {'$lt': cutoff_date_str}})
+            logger.info(f"Cleared {result.deleted_count} old records (older than {cutoff_date_str})")
+            
         except Exception as e:
             logger.error(f"Error clearing old data: {e}")
+    
+    def clear_all_data(self):
+        """
+        Clear all data from the collection to start fresh
+        """
+        logger = logging.getLogger(__name__)
+        
+        if self.collection is None:
+            logger.error("MongoDB collection is not available")
+            return
+            
+        try:
+            # Delete all records
+            result = self.collection.delete_many({})
+            logger.info(f"Cleared all data: {result.deleted_count} records deleted")
+            
+        except Exception as e:
+            logger.error(f"Error clearing all data: {e}")
     
     def get_collection_stats(self):
         """
