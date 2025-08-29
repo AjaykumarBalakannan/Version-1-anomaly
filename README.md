@@ -129,6 +129,38 @@ docker-compose logs -f
 docker-compose up -d --build
 ```
 
+### **Environment Variables & Configuration**
+
+#### **Docker Environment Variables**
+Edit `docker-compose.yml` to customize:
+
+```yaml
+environment:
+  - MONGO_URI=mongodb://anomaly-detection-mongodb:27017
+  - BATCH_SIZE=50000                    # Memory management
+  - ROLLING_WINDOW_DAYS=45              # Historical data retention
+  - LOG_LEVEL=INFO                       # Logging verbosity
+  - MAX_RETRIES=3                        # MongoDB connection retries
+  - RETRY_DELAY=5                        # Retry delay in seconds
+```
+
+#### **Model-Specific Environment Variables**
+Each model can have custom configurations:
+
+```yaml
+# US Level Model
+- US_MODEL_BATCH_SIZE=50000
+- US_MODEL_ROLLING_WINDOW=45
+
+# State Level Model  
+- STATE_MODEL_BATCH_SIZE=50000
+- STATE_MODEL_ROLLING_WINDOW=45
+
+# SOC Level Model
+- SOC_MODEL_BATCH_SIZE=50000
+- SOC_MODEL_ROLLING_WINDOW=45
+```
+
 #### **MongoDB Access**
 ```bash
 # Access MongoDB shell
@@ -150,6 +182,50 @@ docker exec anomaly-detection-mongodb mongosh --eval "
 - Supported formats: Parquet files
 - Required columns: `date`, `geo_level`/`state`/`nlp_soc_code`, `src`, `job_count`
 
+#### **Customizing Input/Output Paths**
+Edit the `main.py` file in each model directory:
+
+```python
+# US Level Model - V0_model_USLevel/main.py
+class USLevelAnomalyPipeline:
+    def __init__(self, file_path, out_csv, batch_size=50000):
+        self.file_path = file_path          # CUSTOMIZE INPUT PATH HERE
+        self.out_csv = out_csv              # CUSTOMIZE OUTPUT PATH HERE
+        self.batch_size = batch_size        # CUSTOMIZE BATCH SIZE HERE
+
+# State Level Model - V0_model_StateLevel/main.py  
+class StateLevelAnomalyPipeline:
+    def __init__(self, file_path, out_csv, batch_size=50000):
+        self.file_path = file_path          # CUSTOMIZE INPUT PATH HERE
+        self.out_csv = out_csv              # CUSTOMIZE OUTPUT PATH HERE
+        self.batch_size = batch_size        # CUSTOMIZE BATCH SIZE HERE
+
+# SOC Level Model - V0_model_SOCLevel/main.py
+class SOCLevelAnomalyPipeline:
+    def __init__(self, file_path, out_csv, batch_size=50000):
+        self.file_path = file_path          # CUSTOMIZE INPUT PATH HERE
+        self.out_csv = out_csv              # CUSTOMIZE OUTPUT PATH HERE
+        self.batch_size = batch_size        # CUSTOMIZE BATCH SIZE HERE
+```
+
+**Path Customization Examples:**
+```python
+# Custom input paths
+file_path = "data/custom_job_data.parquet"
+file_path = "/absolute/path/to/your/data.parquet"
+file_path = "s3://bucket/path/to/data.parquet"  # If using cloud storage
+
+# Custom output paths
+out_csv = "results/anomalies_custom_name.csv"
+out_csv = "/custom/output/directory/anomalies.csv"
+out_csv = "output/anomalies_$(date +%Y%m%d).csv"  # Dynamic naming
+
+# Custom batch sizes for memory management
+batch_size = 100000  # For high-memory systems
+batch_size = 25000   # For low-memory systems
+batch_size = 50000   # Default balanced setting
+```
+
 #### **Output Files**
 - **Anomaly Results**: CSV files with anomaly scores and predictions
 - **Logs**: Detailed execution logs in `logs/` directory
@@ -170,12 +246,86 @@ All three models use the same advanced V1 detection system:
 6. **OCSVM** - One-Class SVM outlier detection
 7. **CBLOF** - Cluster-based local outlier factor
 
+#### **Customizing ML Models**
+Edit the `models` parameter in each model's `detect.py`:
+
+```python
+# In detect.py - AnomalyDetectorV1.__init__()
+def __init__(
+    self,
+    models=("iforest", "hbos", "copod", "knn", "svm", "ocsvm", "cblof"),  # CUSTOMIZE HERE
+    alert_budget_per_week=2,                                                # CUSTOMIZE HERE
+    cooldown_days=1,                                                        # CUSTOMIZE HERE
+    quantile_bounds=(0.95, 0.999),                                         # CUSTOMIZE HERE
+    verbose=False,
+):
+```
+
+**Available Model Options:**
+- **PyCaret Models**: `"iforest"`, `"knn"`, `"svm"`
+- **PyOD Models**: `"hbos"`, `"copod"`, `"ocsvm"`, `"cblof"`
+- **Custom Models**: Add your own models by extending the class
+
+**Model Parameters to Customize:**
+- **`alert_budget_per_week`**: Maximum alerts per week (default: 2)
+- **`cooldown_days`**: Days between alerts (default: 1)
+- **`quantile_bounds`**: Sensitivity range (default: 95th-99.9th percentile)
+
 #### **Feature Engineering (18 features)**
 - **Rolling Statistics**: 7, 14, 28-day rolling means, standard deviations, MAD
 - **Percentage Changes**: 1-day and 7-day changes
 - **Z-Scores**: 7-day and 28-day z-scores
 - **Temporal Features**: Day of week, week of year, month
 - **Long-term Patterns**: Expanding means, share vs long-term average
+
+#### **Customizing Feature Engineering**
+Edit the `_add_roll_feats` method in each model's `detect.py`:
+
+```python
+@staticmethod
+def _add_roll_feats(g: pd.DataFrame) -> pd.DataFrame:
+    g = g.sort_values("date").copy()
+    
+    # CUSTOMIZE ROLLING WINDOWS HERE
+    g["mean_7"] = g["job_count"].rolling(7, min_periods=3).mean()      # Change 7 to desired days
+    g["mean_14"] = g["job_count"].rolling(14, min_periods=5).mean()    # Change 14 to desired days
+    g["mean_28"] = g["job_count"].rolling(28, min_periods=7).mean()    # Change 28 to desired days
+    
+    # CUSTOMIZE STANDARD DEVIATION WINDOWS
+    g["std_7"] = g["job_count"].rolling(7, min_periods=3).std(ddof=0)  # Change 7 to desired days
+    g["std_28"] = g["job_count"].rolling(28, min_periods=7).std(ddof=0) # Change 28 to desired days
+    
+    # CUSTOMIZE MAD WINDOW
+    g["mad_28"] = g["job_count"].rolling(28, min_periods=7).apply(
+        lambda x: np.median(np.abs(x - np.median(x))), raw=False
+    )  # Change 28 to desired days
+    
+    # CUSTOMIZE PERCENTAGE CHANGE WINDOWS
+    g["pct_chg_1"] = g["job_count"].pct_change(1)  # Change 1 to desired days
+    g["pct_chg_7"] = g["job_count"].pct_change(7)  # Change 7 to desired days
+    
+    # CUSTOMIZE Z-SCORE WINDOWS
+    g["z_7"] = (g["job_count"] - g["mean_7"]) / (g["std_7"].replace(0, np.nan))
+    g["z_28"] = (g["job_count"] - g["mean_28"]) / (g["std_28"].replace(0, np.nan))
+    
+    # CUSTOMIZE ROLLING MIN/MAX WINDOWS
+    g["roll_min_14"] = g["job_count"].rolling(14, min_periods=5).min()  # Change 14 to desired days
+    g["roll_max_14"] = g["job_count"].rolling(14, min_periods=5).max()  # Change 14 to desired days
+    
+    # CUSTOMIZE LONG-TERM PATTERNS
+    g["lt_mean"] = g["job_count"].expanding(min_periods=14).mean()      # Change 14 to desired days
+    g["share_vs_lt"] = g["job_count"] / (g["lt_mean"].replace(0, np.nan))
+    
+    return g
+```
+
+**Feature Customization Options:**
+- **Rolling Windows**: Change 7, 14, 28 to any number of days
+- **Min Periods**: Adjust minimum data points required for calculations
+- **New Features**: Add custom features like:
+  - Seasonal patterns: `g["season"] = g["date"].dt.quarter`
+  - Holiday effects: `g["is_holiday"] = g["date"].isin(holiday_dates)`
+  - Market indicators: `g["market_volatility"] = external_volatility_data`
 
 #### **Smart Thresholding**
 - **Per-segment thresholds**: Each (geo_level/state/SOC × source) gets its own threshold
@@ -232,6 +382,50 @@ score_ocsvm,score_cblof,score_ens,date_only,threshold,is_anomaly
   - `upsert_data()`: Add/update daily job counts
   - `load_historical_data()`: Load data for analysis
   - Rolling window filtering for optimal performance
+
+#### **Customizing MongoDB Configuration**
+Edit the `mongodb_hist.py` file to customize database settings:
+
+```python
+class HistoryManager:
+    def __init__(self, mongo_uri, db_name, collection_name, group_field='geo_level'):
+        self.mongo_uri = mongo_uri                    # CUSTOMIZE MONGODB URI HERE
+        self.db_name = db_name                        # CUSTOMIZE DATABASE NAME HERE
+        self.collection_name = collection_name        # CUSTOMIZE COLLECTION NAME HERE
+        self.group_field = group_field                # CUSTOMIZE GROUPING FIELD HERE
+        
+        # CUSTOMIZE ROLLING WINDOW HERE
+        self.rolling_window_days = 45                 # Change 45 to desired retention days
+        
+        # CUSTOMIZE CONNECTION PARAMETERS HERE
+        self.max_retries = 3                          # Change 3 to desired retry attempts
+        self.retry_delay = 5                          # Change 5 to desired retry delay seconds
+        self.server_selection_timeout = 10000         # Change 10000 to desired timeout (ms)
+```
+
+**MongoDB Customization Options:**
+```python
+# Custom MongoDB URIs
+mongo_uri = "mongodb://localhost:27017"              # Local MongoDB
+mongo_uri = "mongodb://user:pass@host:27017"        # Authenticated MongoDB
+mongo_uri = "mongodb://host1:27017,host2:27017"     # Replica set
+mongo_uri = "mongodb+srv://cluster.mongodb.net"     # MongoDB Atlas
+
+# Custom Database Names
+db_name = "custom_anomaly_db"                        # Custom database name
+db_name = "anomaly_detection_prod"                   # Production database
+db_name = "anomaly_detection_dev"                    # Development database
+
+# Custom Collection Names
+collection_name = "custom_job_history"               # Custom collection name
+collection_name = "job_data_2025"                    # Year-specific collection
+collection_name = "anomaly_input_data"               # Descriptive collection name
+
+# Custom Grouping Fields
+group_field = "custom_geo_field"                     # Custom geographic field
+group_field = "business_unit"                        # Business unit grouping
+group_field = "market_segment"                       # Market segment grouping
+```
 
 ### **`common/preprocess.py`**
 - **Purpose**: Data preprocessing utilities
@@ -291,6 +485,49 @@ sleep 15
 - **Naming**: `V1_[Model]Level_anomaly_pipeline_YYYY-MM-DD.log`
 - **Content**: Detailed execution logs, memory usage, model training status
 
+#### **Customizing Logging Configuration**
+Edit the `main.py` file in each model directory:
+
+```python
+# Customize logging level and format
+logging.basicConfig(
+    level=logging.INFO,                              # CUSTOMIZE LOG LEVEL HERE
+    format="%(asctime)s [%(levelname)s] %(message)s", # CUSTOMIZE FORMAT HERE
+    handlers=[
+        logging.FileHandler(log_file_path),           # CUSTOMIZE LOG FILE PATH HERE
+        logging.StreamHandler()                       # CUSTOMIZE CONSOLE OUTPUT HERE
+    ]
+)
+
+# Customize log file naming
+today_str = datetime.now().strftime("%Y-%m-%d")
+log_file_path = f"logs/CUSTOM_PREFIX_{today_str}.log"  # CUSTOMIZE PREFIX HERE
+log_file_path = f"logs/anomaly_detection_{today_str}_{model_type}.log"  # MODEL-SPECIFIC NAMING
+log_file_path = f"/custom/log/path/anomalies_{today_str}.log"  # CUSTOM LOG PATH
+```
+
+**Log Level Options:**
+- `logging.DEBUG`: Most verbose, includes all details
+- `logging.INFO`: Standard information level (default)
+- `logging.WARNING`: Only warnings and errors
+- `logging.ERROR`: Only errors
+- `logging.CRITICAL`: Only critical errors
+
+**Custom Log Format Examples:**
+```python
+# Simple format
+format="%(levelname)s: %(message)s"
+
+# Detailed format with function names
+format="%(asctime)s [%(levelname)s] %(funcName)s:%(lineno)d - %(message)s"
+
+# JSON format for log aggregation
+format='{"timestamp": "%(asctime)s", "level": "%(levelname)s", "message": "%(message)s"}'
+
+# Custom format with process ID
+format="%(asctime)s [%(levelname)s] PID:%(process)d - %(message)s"
+```
+
 ### **Key Log Information**
 - Data processing progress
 - Model training status for each algorithm
@@ -344,6 +581,231 @@ docker-compose logs -f
 
 # Access data
 docker exec -it anomaly-detection-mongodb mongosh
+```
+
+---
+
+## 🔧 **Advanced Customization Guide**
+
+### **Adding New Anomaly Detection Models**
+
+To add your own custom anomaly detection model:
+
+```python
+# 1. Create custom model class
+class CustomAnomalyModel:
+    def __init__(self, custom_param1, custom_param2):
+        self.param1 = custom_param1
+        self.param2 = custom_param2
+    
+    def fit(self, X):
+        # Your custom training logic
+        pass
+    
+    def predict(self, X):
+        # Your custom prediction logic
+        pass
+
+# 2. Integrate into AnomalyDetectorV1
+def _train_models(self, df_feat: pd.DataFrame, feature_cols):
+    # ... existing code ...
+    
+    # Add your custom model
+    if "custom" in self.models:
+        try:
+            custom_mdl = CustomAnomalyModel(param1=value1, param2=value2)
+            custom_mdl.fit(X_pyod)
+            fitted["custom"] = ("custom", custom_mdl)
+            self.logger.info("Trained custom model successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to train custom model: {e}")
+```
+
+### **Custom Data Sources**
+
+To integrate with different data sources:
+
+```python
+# 1. Database connections (PostgreSQL, MySQL, etc.)
+import psycopg2
+import mysql.connector
+
+# 2. Cloud storage (AWS S3, Google Cloud Storage)
+import boto3
+from google.cloud import storage
+
+# 3. API endpoints
+import requests
+import aiohttp
+
+# 4. Stream processing (Kafka, RabbitMQ)
+from kafka import KafkaConsumer
+import pika
+
+# Example: Custom data loader
+class CustomDataLoader:
+    def __init__(self, source_type, connection_params):
+        self.source_type = source_type
+        self.connection_params = connection_params
+    
+    def load_data(self):
+        if self.source_type == "postgresql":
+            return self._load_from_postgresql()
+        elif self.source_type == "s3":
+            return self._load_from_s3()
+        elif self.source_type == "api":
+            return self._load_from_api()
+```
+
+### **Performance Optimization**
+
+#### **Memory Management**
+```python
+# Customize batch processing
+class CustomPipeline:
+    def __init__(self, memory_limit_gb=8):
+        self.memory_limit = memory_limit_gb * 1024 * 1024 * 1024  # Convert to bytes
+        self.batch_size = self._calculate_optimal_batch_size()
+    
+    def _calculate_optimal_batch_size(self):
+        # Dynamic batch size based on available memory
+        available_memory = psutil.virtual_memory().available
+        return min(50000, int(available_memory * 0.1 / 1024))  # Use 10% of available memory
+```
+
+#### **Parallel Processing**
+```python
+# Enable parallel processing for multiple models
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+
+def _train_models_parallel(self, df_feat: pd.DataFrame, feature_cols):
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = []
+        for model_name in self.models:
+            future = executor.submit(self._train_single_model, model_name, df_feat, feature_cols)
+            futures.append((model_name, future))
+        
+        # Collect results
+        for model_name, future in futures:
+            try:
+                result = future.result()
+                if result:
+                    self.fitted_models_[model_name] = result
+            except Exception as e:
+                self.logger.error(f"Model {model_name} training failed: {e}")
+```
+
+### **Production Deployment**
+
+#### **Environment-Specific Configs**
+```python
+# config.py - Environment-based configuration
+import os
+
+class Config:
+    # Development
+    DEV = {
+        'batch_size': 25000,
+        'rolling_window': 30,
+        'log_level': 'DEBUG',
+        'mongo_uri': 'mongodb://localhost:27017'
+    }
+    
+    # Production
+    PROD = {
+        'batch_size': 100000,
+        'rolling_window': 90,
+        'log_level': 'WARNING',
+        'mongo_uri': 'mongodb://prod-cluster:27017'
+    }
+    
+    # Get current environment
+    @staticmethod
+    def get_config():
+        env = os.getenv('ENVIRONMENT', 'DEV').upper()
+        return getattr(Config, env, Config.DEV)
+```
+
+#### **Health Checks & Monitoring**
+```python
+# health_check.py - System health monitoring
+import psutil
+import time
+
+class HealthMonitor:
+    def __init__(self):
+        self.start_time = time.time()
+    
+    def check_system_health(self):
+        health_status = {
+            'cpu_usage': psutil.cpu_percent(),
+            'memory_usage': psutil.virtual_memory().percent,
+            'disk_usage': psutil.disk_usage('/').percent,
+            'uptime': time.time() - self.start_time,
+            'mongodb_connection': self._check_mongodb(),
+            'model_status': self._check_models()
+        }
+        return health_status
+    
+    def _check_mongodb(self):
+        try:
+            # Test MongoDB connection
+            return True
+        except:
+            return False
+```
+
+### **Custom Output Formats**
+
+#### **JSON Output**
+```python
+# Custom JSON output with metadata
+def export_json_results(self, df_out, output_path):
+    results = {
+        'metadata': {
+            'timestamp': datetime.now().isoformat(),
+            'model_version': 'V1',
+            'total_records': len(df_out),
+            'anomaly_count': df_out['is_anomaly'].sum(),
+            'anomaly_rate': float(df_out['is_anomaly'].mean())
+        },
+        'anomalies': df_out[df_out['is_anomaly'] == 1].to_dict('records'),
+        'summary': self._generate_summary_stats(df_out)
+    }
+    
+    with open(output_path, 'w') as f:
+        json.dump(results, f, indent=2, default=str)
+```
+
+#### **Database Output**
+```python
+# Store results in database
+def store_results_in_db(self, df_out, db_connection):
+    # Create results table
+    create_table_sql = """
+    CREATE TABLE IF NOT EXISTS anomaly_results (
+        id SERIAL PRIMARY KEY,
+        timestamp TIMESTAMP,
+        geo_level VARCHAR(100),
+        src VARCHAR(100),
+        date DATE,
+        job_count INTEGER,
+        anomaly_score FLOAT,
+        is_anomaly BOOLEAN,
+        threshold FLOAT
+    )
+    """
+    
+    # Insert results
+    for _, row in df_out.iterrows():
+        insert_sql = """
+        INSERT INTO anomaly_results 
+        (timestamp, geo_level, src, date, job_count, anomaly_score, is_anomaly, threshold)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        values = (datetime.now(), row['geo_level'], row['src'], row['date'], 
+                 row['job_count'], row['score_ens'], row['is_anomaly'], row['threshold'])
+        db_connection.execute(insert_sql, values)
 ```
 
 ---
