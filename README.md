@@ -2,6 +2,25 @@
 
 A comprehensive job market anomaly detection system that identifies unusual patterns in job posting data across three levels: US Level, State Level, and SOC (Standard Occupational Classification) Level.
 
+## 📋 **Table of Contents**
+
+- [🏗️ System Architecture](#️-system-architecture)
+- [🔄 How It Works](#-how-it-works)
+- [📊 Data Flow & Rolling Window](#-data-flow--rolling-window)
+- [🧠 V1 Model Architecture](#-v1-model-architecture)
+- [📁 Project Structure](#-project-structure)
+- [🚀 Quick Start Guide](#-quick-start-guide)
+- [🔧 Detailed Setup Instructions](#-detailed-setup-instructions)
+- [🧠 Model Details](#-model-details)
+- [📊 Output Format](#-output-format)
+- [🔍 Common Files & Functions](#-common-files--functions)
+- [🚨 Troubleshooting](#-troubleshooting)
+- [📈 Monitoring & Logging](#-monitoring--logging)
+- [🔄 Upgrade Paths](#-upgrade-paths)
+- [🔧 Advanced Customization Guide](#-advanced-customization-guide)
+- [📞 Support & Maintenance](#-support--maintenance)
+- [🎯 Quick Reference Commands](#-quick-reference-commands)
+
 ## 🏗️ **System Architecture**
 
 This system consists of three independent anomaly detection models, each analyzing job data at different granularities:
@@ -11,6 +30,322 @@ This system consists of three independent anomaly detection models, each analyzi
 - **SOC Level Model**: Detects anomalies by job categories (SOC code × source)
 
 All models use **Version 1 (V1) ML-based ensemble detection** with advanced feature engineering and multiple anomaly detection algorithms.
+
+## 🔄 **How It Works**
+
+### **End-to-End Process Flow**
+
+The CANARIA system follows a sophisticated pipeline to detect anomalies in job posting data:
+
+```
+Input Data (Parquet) → Preprocessing → MongoDB Storage → Feature Engineering → ML Models → Anomaly Detection → Results
+```
+
+#### **1. Data Ingestion & Preprocessing**
+- **Input**: Large parquet files containing daily job posting data
+- **Batch Processing**: Data is processed in configurable batches (default: 50,000 rows) to manage memory efficiently
+- **Data Cleaning**: Timestamps are rebuilt, null dates are filled, and geographic data is imputed
+- **Validation**: Ensures required columns (`date`, `geo_level`/`state`/`nlp_soc_code`, `src`, `job_count`) are present
+
+#### **Detailed Preprocessing Steps:**
+
+**Step 1: File Reading & Validation**
+```python
+# System reads parquet files in configurable batches
+def read_parquet_in_batches(file_path, batch_size=50000):
+    # CUSTOMIZE BATCH SIZE HERE for memory management
+    # Default: 50,000 rows per batch
+    # High-memory systems: 100,000+ rows per batch
+    # Low-memory systems: 25,000 rows per batch
+```
+
+**Step 2: Data Cleaning & Validation**
+```python
+# Required columns validation
+required_columns = ['date', 'geo_level', 'src', 'job_count']  # US Level
+required_columns = ['date', 'state', 'src', 'job_count']      # State Level  
+required_columns = ['date', 'nlp_soc_code', 'src', 'job_count'] # SOC Level
+
+# Data type validation and conversion
+df['date'] = pd.to_datetime(df['date'])           # Convert to datetime
+df['job_count'] = pd.to_numeric(df['job_count'])  # Convert to numeric
+df['src'] = df['src'].astype(str)                 # Convert to string
+```
+
+**Step 3: Geographic Data Imputation**
+```python
+# State Level: Impute missing state information
+def impute_states(df):
+    # Uses zipcode mapping files to fill missing states
+    # Maps: Canaria_Zipcodes.xlsx, Full_zipcodeFix.xlsx
+    # CUSTOMIZE: Add your own mapping files or logic
+
+# SOC Level: Roll up SOC codes for better grouping
+def rollup_soc_code(soc_code):
+    # Groups similar SOC codes together
+    # CUSTOMIZE: Modify SOC grouping logic as needed
+```
+
+**Step 4: Data Quality Checks**
+```python
+# Automatic data quality validation
+def validate_data_quality(df):
+    # Check for missing values
+    # Validate date ranges
+    # Ensure job counts are positive
+    # Verify geographic/SOC code validity
+    # CUSTOMIZE: Add your own validation rules
+```
+
+#### **2. MongoDB Storage with Rolling Window**
+- **Daily Aggregation**: Only daily job counts per segment are stored (not raw job records)
+- **Rolling Window**: Maintains a configurable window of historical data (default: 45 days)
+- **Automatic Cleanup**: Oldest data is automatically removed when new data arrives
+- **Efficient Indexing**: Compound indexes on `(group_field, src, date)` for fast queries
+
+#### **3. Feature Engineering Pipeline**
+- **Rolling Statistics**: 7, 14, 28-day rolling means, standard deviations, MAD
+- **Temporal Features**: Day of week, week of year, month patterns
+- **Statistical Measures**: Z-scores, percentage changes, rolling min/max
+- **Long-term Patterns**: Expanding means, share vs long-term averages
+
+#### **4. ML-Based Anomaly Detection**
+- **Ensemble Approach**: Combines 7 different anomaly detection algorithms
+- **Per-Segment Thresholds**: Each (geo_level/state/SOC × source) gets its own adaptive threshold
+- **Smart Calibration**: Uses quantile-based thresholds (default: 95th-99.9th percentile)
+- **Cooldown Logic**: Prevents alert spam with configurable cooldown periods
+
+#### **5. Results & Output**
+- **Anomaly Scores**: Individual scores from each model + ensemble average
+- **Binary Classification**: Clear anomaly flags (1 = anomaly, 0 = normal)
+- **Detailed Logging**: Complete execution logs with performance metrics
+- **Multiple Formats**: CSV output with comprehensive anomaly information
+
+## 📊 **Data Flow & Rolling Window**
+
+### **Rolling Window Mechanism**
+
+The system implements a sophisticated rolling window approach that ensures optimal performance and memory management:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Rolling Window (45 days)                     │
+├─────────────────────────────────────────────────────────────────┤
+│ Day 1 │ Day 2 │ Day 3 │ ... │ Day 44 │ Day 45 │ NEW DAY      │
+│        │       │       │     │        │        │ ↓             │
+│        │       │       │     │        │        │ Day 46       │
+│        │       │       │     │        │        │ (Day 1      │
+│        │       │       │     │        │        │  deleted)   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### **How Rolling Window Works:**
+
+1. **Initial Load**: System loads the last 45 days of historical data
+2. **Daily Updates**: When new data arrives:
+   - New day is added to the window
+   - Oldest day (beyond 45 days) is automatically removed
+   - Window maintains exactly 45 days of data
+3. **Memory Efficiency**: Only relevant historical data is kept in memory
+4. **Performance**: Faster queries and processing with limited data
+
+#### **Rolling Window Benefits:**
+
+- **🔄 Always Fresh**: Data is never older than the configured window
+- **💾 Memory Efficient**: Prevents unlimited data accumulation
+- **⚡ Fast Processing**: Smaller datasets process faster
+- **🎯 Relevant History**: Focuses on recent patterns that matter
+- **🔧 Configurable**: Window size can be adjusted per model
+
+#### **Rolling Window Configuration:**
+
+```python
+# In mongodb_hist.py - customize rolling window size
+class HistoryManager:
+    def __init__(self, mongo_uri, db_name, collection_name, group_field='geo_level'):
+        # CUSTOMIZE ROLLING WINDOW HERE
+        self.rolling_window_days = 45  # Change to desired retention days
+        
+        # Examples:
+        # self.rolling_window_days = 30   # 30 days for short-term analysis
+        # self.rolling_window_days = 90   # 90 days for long-term patterns
+        # self.rolling_window_days = 180  # 180 days for seasonal analysis
+```
+
+### **Data Storage Strategy**
+
+#### **MongoDB Collections Structure:**
+
+```
+us_anomaly_db/
+├── us_job_history/
+│   ├── {geo_level: "US", src: "linkedin_us", date: "2025-01-01", job_count: 15000}
+│   ├── {geo_level: "US", src: "linkedin_us", date: "2025-01-02", job_count: 15200}
+│   └── ... (45 days of data)
+
+state_anomaly_db/
+├── state_job_history/
+│   ├── {state: "CA", src: "linkedin_us", date: "2025-01-01", job_count: 5000}
+│   ├── {state: "CA", src: "linkedin_us", date: "2025-01-02", job_count: 5100}
+│   └── ... (45 days of data)
+
+soc_anomaly_db/
+├── soc_level_data/
+│   ├── {nlp_soc_code_rolled: "15-1132", src: "linkedin_us", date: "2025-01-01", job_count: 800}
+│   ├── {nlp_soc_code_rolled: "15-1132", src: "linkedin_us", date: "2025-01-02", job_count: 820}
+│   └── ... (45 days of data)
+```
+
+#### **Automatic Data Management:**
+
+- **Upsert Logic**: New data automatically updates existing records or creates new ones
+- **Date-based Cleanup**: Old records beyond rolling window are automatically removed
+- **Index Optimization**: Compound indexes ensure fast queries and updates
+- **Data Integrity**: Automatic validation and error handling
+
+## 🧠 **V1 Model Architecture**
+
+### **Core Architecture Components**
+
+The V1 models use a sophisticated multi-layered architecture:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    V1 Anomaly Detection Architecture            │
+├─────────────────────────────────────────────────────────────────┤
+│  Input Data Layer                                              │
+│  ├── Raw Job Counts (Parquet)                                 │
+│  ├── Preprocessing & Validation                               │
+│  └── MongoDB Storage (Rolling Window)                         │
+├─────────────────────────────────────────────────────────────────┤
+│  Feature Engineering Layer                                     │
+│  ├── Rolling Statistics (7, 14, 28 days)                     │
+│  ├── Temporal Features (DOW, Week, Month)                     │
+│  ├── Statistical Measures (Z-scores, MAD)                     │
+│  └── Long-term Patterns (Expanding means)                     │
+├─────────────────────────────────────────────────────────────────┤
+│  ML Model Ensemble Layer                                       │
+│  ├── PyCaret Models (iforest, knn, svm)                       │
+│  ├── PyOD Models (hbos, copod, ocsvm, cblof)                 │
+│  └── Ensemble Scoring & Normalization                          │
+├─────────────────────────────────────────────────────────────────┤
+│  Threshold & Alert Layer                                       │
+│  ├── Per-Segment Thresholds (Quantile-based)                  │
+│  ├── Cooldown Logic (Prevent Alert Spam)                      │
+│  └── Anomaly Classification                                    │
+├─────────────────────────────────────────────────────────────────┤
+│  Output & Monitoring Layer                                     │
+│  ├── CSV Results with Scores                                   │
+│  ├── Detailed Logging & Metrics                                │
+│  └── Performance Monitoring                                    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### **Model Training & Inference Process**
+
+#### **Training Phase:**
+1. **Data Preparation**: Load historical data from MongoDB rolling window
+2. **Feature Engineering**: Generate 18 engineered features per record
+3. **Model Training**: Train 7 different anomaly detection models
+4. **Threshold Calibration**: Calculate per-segment thresholds using quantiles
+
+#### **Inference Phase:**
+1. **Feature Generation**: Generate features for new data
+2. **Model Scoring**: Get anomaly scores from all 7 models
+3. **Ensemble Aggregation**: Average scores for robust detection
+4. **Threshold Comparison**: Compare scores against calibrated thresholds
+5. **Anomaly Classification**: Mark records as normal or anomalous
+
+### **Key Architectural Benefits:**
+
+- **🔄 Rolling Updates**: Models automatically adapt to new data patterns
+- **⚖️ Ensemble Robustness**: Multiple models reduce false positives/negatives
+- **🎯 Adaptive Thresholds**: Each segment gets its own sensitivity level
+- **💾 Memory Efficient**: Rolling window prevents unlimited data accumulation
+- **🔧 Highly Configurable**: Every aspect can be customized for specific needs
+
+### **Daily Workflow & Rolling Window Operation**
+
+#### **What Happens Every Day:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Daily Execution Workflow                     │
+├─────────────────────────────────────────────────────────────────┤
+│  Morning (Data Ingestion)                                      │
+│  ├── New parquet file arrives with yesterday's job data        │
+│  ├── System processes data in configurable batches             │
+│  ├── Data is cleaned, validated, and preprocessed             │
+│  └── Daily job counts are aggregated per segment              │
+├─────────────────────────────────────────────────────────────────┤
+│  MongoDB Update (Rolling Window)                               │
+│  ├── New day's data is inserted/updated in MongoDB            │
+│  ├── System checks rolling window size (default: 45 days)     │
+│  ├── Oldest day beyond 45 days is automatically deleted       │
+│  └── Rolling window maintains exactly 45 days of data         │
+├─────────────────────────────────────────────────────────────────┤
+│  Anomaly Detection (ML Models)                                 │
+│  ├── System loads 45 days of historical data from MongoDB     │
+│  ├── Feature engineering generates 18 features per record     │
+│  ├── 7 ML models are trained on the 45-day dataset            │
+│  ├── Per-segment thresholds are calibrated                    │
+│  └── Anomalies are detected and classified                    │
+├─────────────────────────────────────────────────────────────────┤
+│  Results & Cleanup                                             │
+│  ├── Anomaly results are saved to CSV files                   │
+│  ├── Detailed logs are written with performance metrics       │
+│  ├── Memory is cleaned up (rolling window prevents overflow)  │
+│  └── System is ready for next day's execution                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### **Rolling Window in Action:**
+
+**Day 1-45 (Initial Window):**
+```
+MongoDB contains: [Day 1, Day 2, Day 3, ..., Day 44, Day 45]
+Total records: 45 days × number of segments
+```
+
+**Day 46 (New Data Arrives):**
+```
+1. NEW DATA: Day 46 job counts are processed and added
+2. ROLLING WINDOW: System checks window size (45 days)
+3. CLEANUP: Day 1 data is automatically deleted
+4. RESULT: Window now contains [Day 2, Day 3, ..., Day 45, Day 46]
+```
+
+**Day 47 (Next Day):**
+```
+1. NEW DATA: Day 47 job counts are processed and added
+2. ROLLING WINDOW: System checks window size (45 days)
+3. CLEANUP: Day 2 data is automatically deleted
+4. RESULT: Window now contains [Day 3, Day 4, ..., Day 46, Day 47]
+```
+
+#### **Why Rolling Window is Critical:**
+
+1. **🔄 Always Current**: Models always work with the most recent 45 days of data
+2. **💾 Memory Management**: Prevents unlimited data accumulation that would crash the system
+3. **⚡ Performance**: Smaller datasets process faster and use less memory
+4. **🎯 Pattern Recognition**: Focuses on recent market patterns that are most relevant
+5. **🔧 Scalability**: System can handle years of data without performance degradation
+
+#### **Rolling Window Configuration Examples:**
+
+```python
+# Short-term analysis (30 days)
+self.rolling_window_days = 30  # Faster processing, recent patterns only
+
+# Medium-term analysis (45 days) - DEFAULT
+self.rolling_window_days = 45  # Balanced performance and pattern recognition
+
+# Long-term analysis (90 days)
+self.rolling_window_days = 90  # Slower processing, seasonal patterns included
+
+# Seasonal analysis (180 days)
+self.rolling_window_days = 180 # Long-term trends, seasonal effects captured
+```
 
 ## 📁 **Project Structure**
 
