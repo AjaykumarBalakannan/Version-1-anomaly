@@ -14,6 +14,8 @@ COPY requirements.txt /app/requirements.txt
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+RUN mkdir -p /app/logs /app/output /app/input-files /app/data
+
 # Copy both model directories
 COPY . /app/.
 ENV PYTHONPATH=/app

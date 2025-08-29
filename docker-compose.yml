@@ -26,21 +26,18 @@ services:
       - STATE_BATCH_SIZE=50000
       # --------------- SOC Model ----------------
       - SOC_APP_DB=soc_anomaly_db
-      - SOC_COLLECTION=soc_job_history
+      - SOC_COLLECTION=soc_level_data 
       - SOC_INPUT_PARQUET=input-files/linkedin_jan_2025.parquet
       - SOC_OUTPUT_CSV=output/anomalies_SOC.csv
       - SOC_BATCH_SIZE=50000
       - SOC_MODEL=1
     volumes:
-      - ./input-files:/app/input-files
-      - ./data:/app/data
-      - ./output:/app/output
-      - ./logs:/app/logs
+      - .:/app/.
     tty: true
 
   # ---------------- MongoDB Service ----------------
   anomaly-detection-mongodb:
-    image: mongo:8.0
+    image: mongo:7.0
     container_name: anomaly-detection-mongodb
     restart: always
     ports:

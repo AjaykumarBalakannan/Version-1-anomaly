@@ -234,7 +234,7 @@ class HistoryManager:
     
     def _prepare_upsert_operations(self, daily_counts_df: pd.DataFrame):
         """
-        Prepare upsert operations for bulk write
+        Prepare upsert operations for bulk write with proper deduplication
         
         Args:
             daily_counts_df: DataFrame with daily counts
@@ -248,7 +248,8 @@ class HistoryManager:
             # Create unique _id for each (date, geo_level, src) combination
             unique_id = f"{row[self.group_field]}_{row['src']}_{row['date']}"
             
-            # Create upsert operation to replace job_count (not increment)
+            # Create upsert operation that ACCUMULATES job counts from new unique jobs
+            # The batch-level deduplication ensures we only process new unique jobs
             operation = UpdateOne(
                 {
                     'date': row['date'],
@@ -256,11 +257,13 @@ class HistoryManager:
                     'src': row['src']
                 },
                 {
-                    '$set': {
+                    '$setOnInsert': {
                         '_id': unique_id,
                         'date': row['date'],
                         self.group_field: row[self.group_field],
-                        'src': row['src'],
+                        'src': row['src']
+                    },
+                    '$inc': {  # ACCUMULATE job counts from new unique jobs
                         'job_count': row['job_count']
                     }
                 },

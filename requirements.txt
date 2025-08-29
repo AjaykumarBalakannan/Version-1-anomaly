@@ -11,3 +11,11 @@ psutil>=5.8.0       # For memory monitoring
 
 # Standard library modules like 'logging', 'os', 're' do not need to be listed, will be pre-installed
 
+# Anomaly Detection V1 dependencies
+pycaret>=3.0.0      # For advanced anomaly detection models
+pyod>=1.0.0         # For additional anomaly detection algorithms
+scikit-learn>=1.0.0 # Required by PyCaret and PyOD
+
+# Visualization dependencies
+matplotlib>=3.5.0   # For plotting and visualization
+

@@ -6,7 +6,7 @@ from common.preprocess import Preprocessor
 from common.mongodb_hist import HistoryManager
 from common.utils.memlogger import log_memory
 from state_impute import StateImputer
-from detect import StateAnomalyDetector
+from detect import StateAnomalyDetectorV1, detect_anomalies_v1
 from config import US_STATES, US_STATES_FULL
 
 class StateLevelAnomalyPipeline:
@@ -119,9 +119,26 @@ class StateLevelAnomalyPipeline:
             return None, None, None
         
         # Run anomaly detection
-        logger.info("Running state-level anomaly detection...")
-        detector = StateAnomalyDetector()
-        df_anom, pivot, summary = detector.detect_anomalies(df_hist, csv_path=self.out_csv)
+        logger.info("Running V1 state-level anomaly detection...")
+        logger.info("V1 Models: iforest, hbos, copod, knn, svm, ocsvm, cblof")
+        logger.info("V1 Features: rolling means (7,14,28), std, mad, pct_change, z-scores, temporal features")
+        
+        df_anom, pivot, summary = detect_anomalies_v1(
+            df_hist, 
+            csv_path=self.out_csv,
+            models=("iforest", "hbos", "copod", "knn", "svm", "ocsvm", "cblof"),
+            alert_budget_per_week=2,
+            cooldown_days=1,
+            quantile_bounds=(0.95, 0.999),
+            verbose=True
+        )
+        
+        # Add V1 specific logging
+        logger.info(f"V1 State-Level Anomaly Detection completed:")
+        logger.info(f"  Total records: {summary.get('total_records', 0)}")
+        logger.info(f"  Anomaly rate: {summary.get('anomaly_rate', 0):.4f}")
+        logger.info(f"  Segments: {summary.get('segments', 0)}")
+        logger.info(f"  Quantile bounds: {summary.get('quantile_bounds', (0, 0))}")
         
         return df_anom, pivot, summary
 
