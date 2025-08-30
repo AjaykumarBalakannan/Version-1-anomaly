@@ -15,3 +15,10 @@ output/*
 # Ignore input-files but keep .gitkeep
 input-files/*
 !input-files/.gitkeep
+
+# Ignore specific data file types but keep mapping files
+*.parquet
+*.csv
+*.log
+*.xlsx
+!data/*.xlsx
